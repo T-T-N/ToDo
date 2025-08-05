@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import json
 import os
 from dotenv import load_dotenv
-import psycopg
-from psycopg_pool import ConnectionPool
-from psycopg.rows import dict_row
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
 import logging
 
 # Load environment variables
@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 # Create connection pool for production
 try:
-    db_pool = ConnectionPool(
-        conninfo=os.environ.get('DATABASE_URL'),
-        min_size=1,
-        max_size=20,
-        kwargs={'row_factory': dict_row}
+    db_pool = psycopg2.pool.ThreadedConnectionPool(
+        minconn=1,
+        maxconn=20,
+        dsn=os.environ.get('DATABASE_URL'),
+        cursor_factory=RealDictCursor
     )
     logger.info("Database connection pool created successfully")
 except Exception as e:
@@ -41,10 +41,8 @@ def get_db():
 
 def release_db(conn, cur):
     try:
-        if cur:
-            cur.close()
-        if conn:
-            db_pool.putconn(conn)
+        cur.close()
+        db_pool.putconn(conn)
     except Exception as e:
         logger.error(f"Failed to release database connection: {e}")
 
@@ -638,150 +636,11 @@ if __name__ == '__main__':
             <h1>📅 Task Calendar</h1>
             <div class="tabs">
                 <button class="tab active" onclick="showTab('tasks')">Tasks</button>
-                <button class="tab" onclick="showTab('calendar')">Calendar</button>
-            </div>
-        </div>
+    # Create templates directory if it doesn't exist
+    os.makedirs('templates', exist_ok=True)
 
-        <div class="content">
-            <!-- Tasks Tab -->
-            <div id="tasks" class="tab-content active">
-                <div class="view-toggle">
-                    <button class="view-btn active" onclick="showTaskView('kanban')">Kanban Board</button>
-                    <button class="view-btn" onclick="showTaskView('eisenhower')">Eisenhower Matrix</button>
-                </div>
-                
-                <button class="add-task-btn" onclick="openTaskModal()">+ Add New Task</button>
-
-                <!-- Kanban Board View -->
-                <div id="kanban-view" class="task-view">
-                    <div class="kanban-board">
-                        <div class="kanban-column" data-status="todo">
-                            <div class="kanban-header todo-header">To Do</div>
-                            <div class="task-list" id="todo-tasks"></div>
-                        </div>
-                        <div class="kanban-column" data-status="in_progress">
-                            <div class="kanban-header progress-header">In Progress</div>
-                            <div class="task-list" id="progress-tasks"></div>
-                        </div>
-                        <div class="kanban-column" data-status="done">
-                            <div class="kanban-header done-header">Done</div>
-                            <div class="task-list" id="done-tasks"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Eisenhower Matrix View -->
-                <div id="eisenhower-view" class="task-view" style="display: none;">
-                    <div class="eisenhower-matrix">
-                        <div class="matrix-quadrant urgent-important" data-priority="urgent-important">
-                            <div class="quadrant-title">Urgent & Important</div>
-                            <div class="task-list" id="urgent-important-tasks"></div>
-                        </div>
-                        <div class="matrix-quadrant urgent-not-important" data-priority="urgent-not-important">
-                            <div class="quadrant-title">Urgent & Not Important</div>
-                            <div class="task-list" id="urgent-not-important-tasks"></div>
-                        </div>
-                        <div class="matrix-quadrant not-urgent-important" data-priority="not-urgent-important">
-                            <div class="quadrant-title">Not Urgent & Important</div>
-                            <div class="task-list" id="not-urgent-important-tasks"></div>
-                        </div>
-                        <div class="matrix-quadrant not-urgent-not-important" data-priority="not-urgent-not-important">
-                            <div class="quadrant-title">Not Urgent & Not Important</div>
-                            <div class="task-list" id="not-urgent-not-important-tasks"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Calendar Tab -->
-            <div id="calendar" class="tab-content">
-                <div class="calendar-controls">
-                    <div class="view-toggle">
-                        <button class="view-btn active" onclick="setCalendarView('month')">Month</button>
-                        <button class="view-btn" onclick="setCalendarView('week')">Week</button>
-                        <button class="view-btn" onclick="setCalendarView('day')">Day</button>
-                    </div>
-                    <div class="calendar-nav">
-                        <button class="nav-btn" onclick="navigateCalendar(-1)">‹</button>
-                        <span id="calendar-title">January 2024</span>
-                        <button class="nav-btn" onclick="navigateCalendar(1)">›</button>
-                        <button class="nav-btn" onclick="goToToday()">Today</button>
-                    </div>
-                </div>
-                
-                <div id="calendar-grid" class="calendar-grid"></div>
-                
-                <div class="unassigned-tasks">
-                    <div class="unassigned-header">Unassigned Tasks</div>
-                    <div id="unassigned-task-list"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Task Modal -->
-    <div id="taskModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeTaskModal()">&times;</span>
-            <h2 id="modal-title">Add New Task</h2>
-            <form id="taskForm">
-                <div class="form-group">
-                    <label for="task-title">Title *</label>
-                    <input type="text" id="task-title" required>
-                </div>
-                <div class="form-group">
-                    <label for="task-description">Description</label>
-                    <textarea id="task-description" rows="3"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="task-due-date">Due Date</label>
-                    <input type="date" id="task-due-date">
-                </div>
-                <div class="form-group">
-                    <label for="task-assigned-date">Assigned Date</label>
-                    <input type="date" id="task-assigned-date">
-                </div>
-                <div class="form-group">
-                    <label for="task-priority">Priority</label>
-                    <select id="task-priority">
-                        <option value="low">Low</option>
-                        <option value="medium" selected>Medium</option>
-                        <option value="high">High</option>
-                        <option value="urgent">Urgent</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="task-status">Status</label>
-                    <select id="task-status">
-                        <option value="todo" selected>To Do</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="done">Done</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="task-notes">Notes</label>
-                    <textarea id="task-notes" rows="3"></textarea>
-                </div>
-                <div class="form-actions">
-                    <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Save Task</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        let tasks = [];
-        let currentDate = new Date();
-        let calendarView = 'month';
-        let editingTaskId = null;
-
-        // Initialize the app
-        document.addEventListener('DOMContentLoaded', function() {
-            loadTasks();
-            renderCalendar();
-            setupDragAndDrop();
-        });
+    # Create the HTML template with inline CSS and JS
+    html_content = '''<!DOCTYPE html>
 
         // Tab functionality
         function showTab(tabName) {
