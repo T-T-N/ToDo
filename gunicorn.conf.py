@@ -1,14 +1,14 @@
 # Gunicorn configuration for Render deployment
 import os
+import multiprocessing
 
 # Worker processes
-workers = int(os.getenv('WEB_CONCURRENCY', 4))  # Default to 4 workers
-threads = int(os.getenv('PYTHON_MAX_THREADS', 2))
-worker_class = 'gthread'
+workers = multiprocessing.cpu_count() * 2 + 1
+threads = 2
+worker_class = 'sync'
 
 # Binding
-port = os.getenv('PORT', '8000')
-bind = f"0.0.0.0:{port}"
+bind = "0.0.0.0:" + os.environ.get("PORT", "8000")
 timeout = 120  # Increase timeout for slower operations
 
 # Handle SSL termination properly
