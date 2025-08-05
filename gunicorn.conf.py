@@ -1,10 +1,14 @@
-# This file is required by Render and Heroku to properly serve the app
-# It sets up gunicorn as the production web server
+# Gunicorn configuration for Render deployment
+import os
 
-workers = 4  # Adjust based on available memory and CPU cores
-threads = 2
+# Worker processes
+workers = int(os.getenv('WEB_CONCURRENCY', 4))  # Default to 4 workers
+threads = int(os.getenv('PYTHON_MAX_THREADS', 2))
 worker_class = 'gthread'
-bind = "0.0.0.0:$PORT"  # Use the PORT environment variable provided by the platform
+
+# Binding
+port = os.getenv('PORT', '8000')
+bind = f"0.0.0.0:{port}"
 timeout = 120  # Increase timeout for slower operations
 
 # Handle SSL termination properly
