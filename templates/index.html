@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ToDo Calendar App</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 40px auto;
+            background: rgba(255,255,255,0.85);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+            padding: 40px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+        .tabs {
+            display: flex;
+            gap: 16px;
+        }
+        .tab {
+            background: rgba(102,126,234,0.08);
+            border: none;
+            border-radius: 16px;
+            padding: 12px 32px;
+            font-size: 1.1rem;
+            color: #222;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .tab.active {
+            background: #667eea;
+            color: #fff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        /* Kanban Board */
+        .kanban-board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        .kanban-column {
+            background: rgba(248,249,250,0.8);
+            border-radius: 18px;
+            padding: 24px;
+            min-height: 400px;
+        }
+        .kanban-header {
+            font-weight: 600;
+            margin-bottom: 18px;
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .todo-header { background: rgba(255,193,7,0.2); color: #222; }
+        .progress-header { background: rgba(0,123,255,0.2); color: #222; }
+        .done-header { background: rgba(40,167,69,0.2); color: #222; }
+        .task-card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 14px;
+            padding: 18px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            cursor: move;
+            transition: box-shadow 0.2s, transform 0.2s;
+            border-left: 4px solid #667eea;
+        }
+        .task-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .task-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #222;
+        }
+        .task-meta {
+            font-size: 13px;
+            color: #667eea;
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+        /* Eisenhower Matrix */
+        .eisenhower-matrix {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            height: 500px;
+        }
+        .matrix-quadrant {
+            border-radius: 18px;
+            padding: 24px;
+            position: relative;
+        }
+        .urgent-important { background: rgba(220,53,69,0.1); border: 2px solid rgba(220,53,69,0.3); }
+        .urgent-not-important { background: rgba(255,193,7,0.1); border: 2px solid rgba(255,193,7,0.3); }
+        .not-urgent-important { background: rgba(0,123,255,0.1); border: 2px solid rgba(0,123,255,0.3); }
+        .not-urgent-not-important { background: rgba(108,117,125,0.1); border: 2px solid rgba(108,117,125,0.3); }
+        .quadrant-title {
+            font-weight: 600;
+            margin-bottom: 18px;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.7);
+        }
+        /* Calendar Styles */
+        .calendar-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .calendar-nav {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .nav-btn {
+            background: rgba(102,126,234,0.1);
+            border: none;
+            padding: 10px 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            color: #667eea;
+            transition: background 0.2s;
+        }
+        .nav-btn:hover {
+            background: #667eea;
+            color: #fff;
+        }
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 2px;
+            background: rgba(102,126,234,0.08);
+            border-radius: 18px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .calendar-day {
+            background: rgba(255,255,255,0.95);
+            padding: 14px;
+            min-height: 110px;
+            position: relative;
+        }
+        .calendar-day.other-month {
+            opacity: 0.3;
+        }
+        .calendar-day.today {
+            background: rgba(102,126,234,0.12);
+        }
+        .day-number {
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .day-header {
+            background: #667eea;
+            color: #fff;
+            padding: 12px;
+            text-align: center;
+            font-weight: 600;
+        }
+        .unassigned-tasks {
+            background: rgba(248,249,250,0.8);
+            border-radius: 18px;
+            padding: 24px;
+            margin-top: 24px;
+        }
+        .unassigned-header {
+            font-weight: 600;
+            margin-bottom: 18px;
+            color: #222;
+        }
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(5px);
+        }
+        .modal-content {
+            background: rgba(255,255,255,0.98);
+            margin: 5% auto;
+            padding: 36px;
+            border-radius: 24px;
+            width: 90%;
+            max-width: 520px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+        }
+        .form-group {
+            margin-bottom: 24px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 7px;
+            font-weight: 600;
+            color: #222;
+        }
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid rgba(102,126,234,0.18);
+            border-radius: 12px;
+            font-size: 15px;
+            transition: border 0.2s;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102,126,234,0.08);
+        }
+        .form-actions {
+            display: flex;
+            gap: 14px;
+            justify-content: flex-end;
+            margin-top: 36px;
+        }
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 28px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s, transform 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .btn-secondary {
+            background: rgba(108,117,125,0.12);
+            color: #222;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .close {
+            color: #667eea;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: -10px;
+        }
+        .close:hover {
+            color: #222;
+        }
+        /* Drag and drop styles */
+        .drag-over {
+            background: rgba(102,126,234,0.12) !important;
+            border: 2px dashed #667eea;
+        }
+        .dragging {
+            opacity: 0.5;
+            transform: rotate(5deg);
+        }
+        @media (max-width: 900px) {
+            .container { padding: 16px; }
+            .kanban-board { grid-template-columns: 1fr; }
+            .eisenhower-matrix { grid-template-columns: 1fr; height: auto; }
+            .calendar-grid { grid-template-columns: repeat(7, 1fr); }
+            .calendar-day { min-height: 80px; padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📅 Task Calendar</h1>
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('tasks')">Tasks</button>
+                <button class="tab" onclick="showTab('calendar')">Calendar</button>
+            </div>
+        </div>
+        <div class="content">
+            <!-- Task View -->
+            <div id="tasks" class="tab-content active">
+                <div class="view-toggle">
+                    <button class="btn btn-secondary active" onclick="showTaskView('kanban')">Kanban</button>
+                    <button class="btn btn-secondary" onclick="showTaskView('eisenhower')">Eisenhower Matrix</button>
+                </div>
+                <button class="btn btn-primary" onclick="openTaskModal()">+ Add Task</button>
+                <!-- Kanban View -->
+                <div id="kanban-view" class="task-view" style="display: block;">
+                    <div class="kanban-board">
+                        <div class="kanban-column" data-status="todo">
+                            <div class="kanban-header todo-header">To Do</div>
+                            <div id="todo-tasks"></div>
+                        </div>
+                        <div class="kanban-column" data-status="in_progress">
+                            <div class="kanban-header progress-header">In Progress</div>
+                            <div id="progress-tasks"></div>
+                        </div>
+                        <div class="kanban-column" data-status="done">
+                            <div class="kanban-header done-header">Done</div>
+                            <div id="done-tasks"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Eisenhower Matrix View -->
+                <div id="eisenhower-view" class="task-view" style="display: none;">
+                    <div class="eisenhower-matrix">
+                        <div class="matrix-quadrant urgent-important">
+                            <div class="quadrant-title">Urgent & Important</div>
+                            <div id="urgent-important-tasks"></div>
+                        </div>
+                        <div class="matrix-quadrant urgent-not-important">
+                            <div class="quadrant-title">Urgent, Not Important</div>
+                            <div id="urgent-not-important-tasks"></div>
+                        </div>
+                        <div class="matrix-quadrant not-urgent-important">
+                            <div class="quadrant-title">Important, Not Urgent</div>
+                            <div id="not-urgent-important-tasks"></div>
+                        </div>
+                        <div class="matrix-quadrant not-urgent-not-important">
+                            <div class="quadrant-title">Not Urgent, Not Important</div>
+                            <div id="not-urgent-not-important-tasks"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Calendar View -->
+            <div id="calendar" class="tab-content">
+                <div class="view-toggle">
+                    <button class="btn btn-secondary active" onclick="setCalendarView('month')">Month</button>
+                    <button class="btn btn-secondary" onclick="setCalendarView('week')">Week</button>
+                    <button class="btn btn-secondary" onclick="setCalendarView('day')">Day</button>
+                </div>
+                <div class="calendar-controls">
+                    <div class="calendar-nav">
+                        <button class="nav-btn" onclick="navigateCalendar(-1)">←</button>
+                        <button class="nav-btn" onclick="goToToday()">Today</button>
+                        <button class="nav-btn" onclick="navigateCalendar(1)">→</button>
+                    </div>
+                    <h2 id="calendar-title"></h2>
+                </div>
+                <div id="calendar-grid" class="calendar-grid"></div>
+                <div class="unassigned-tasks">
+                    <div class="unassigned-header">Unassigned Tasks</div>
+                    <div id="unassigned-task-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Task Modal -->
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTaskModal()">&times;</span>
+            <h2 id="modal-title">Add New Task</h2>
+            <form id="taskForm">
+                <div class="form-group">
+                    <label for="task-title">Title</label>
+                    <input type="text" id="task-title" required>
+                </div>
+                <div class="form-group">
+                    <label for="task-description">Description</label>
+                    <textarea id="task-description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="task-due-date">Due Date</label>
+                    <input type="date" id="task-due-date">
+                </div>
+                <div class="form-group">
+                    <label for="task-assigned-date">Assigned Date</label>
+                    <input type="date" id="task-assigned-date">
+                </div>
+                <div class="form-group">
+                    <label for="task-priority">Priority</label>
+                    <select id="task-priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-status">Status</label>
+                    <select id="task-status">
+                        <option value="todo" selected>To Do</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="done">Done</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-notes">Notes</label>
+                    <textarea id="task-notes" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        // ...existing code for frontend logic (drag & drop, API calls, calendar rendering, etc.)...
+    </script>
+</body>
+</html>
