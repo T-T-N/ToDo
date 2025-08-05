@@ -1,12 +1,158 @@
 from flask import Flask, render_template, request, jsonify
-from datetime import datetime, timedelta
-import json
 import os
-from dotenv import load_dotenv
 import psycopg2
-from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 import logging
+
+app = Flask(__name__)
+
+# Database configuration
+db_config = {
+    'dbname': os.getenv('DB_NAME', 'todolist'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'root'),
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': os.getenv('DB_PORT', '5432')
+}
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def get_db():
+    try:
+        conn = psycopg2.connect(**db_config)
+        conn.autocommit = True
+        return conn, conn.cursor()
+    except Exception as e:
+        logger.error(f"Failed to get database connection: {e}")
+        return None, None
+
+def release_db(conn, cur):
+    try:
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to release database connection: {e}")
+
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(**db_config)
+        conn.autocommit = True
+        return conn
+    except Exception as e:
+        logger.error(f"Error connecting to database: {e}")
+        return None
+
+# Initialize database table
+def init_db():
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    date DATE NOT NULL,
+                    completed BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            cur.close()
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Error initializing database: {e}")
+        finally:
+            conn.close()
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/add_task', methods=['POST'])
+def add_task():
+    data = request.get_json()
+    title = data.get('title')
+    date = data.get('date')
+    
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "INSERT INTO tasks (title, date) VALUES (%s, %s) RETURNING *",
+                (title, date)
+            )
+            new_task = cur.fetchone()
+            cur.close()
+            return jsonify(new_task)
+        except Exception as e:
+            logger.error(f"Error adding task: {e}")
+            return jsonify({"error": "Failed to add task"}), 500
+        finally:
+            conn.close()
+    return jsonify({"error": "Database connection failed"}), 500
+
+@app.route('/get_tasks')
+def get_tasks():
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute("SELECT * FROM tasks ORDER BY date")
+            tasks = cur.fetchall()
+            cur.close()
+            return jsonify(list(tasks))
+        except Exception as e:
+            logger.error(f"Error getting tasks: {e}")
+            return jsonify({"error": "Failed to get tasks"}), 500
+        finally:
+            conn.close()
+    return jsonify({"error": "Database connection failed"}), 500
+
+@app.route('/toggle_task/<int:task_id>', methods=['PUT'])
+def toggle_task(task_id):
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                "UPDATE tasks SET completed = NOT completed WHERE id = %s RETURNING *",
+                (task_id,)
+            )
+            updated_task = cur.fetchone()
+            cur.close()
+            if updated_task:
+                return jsonify(updated_task)
+            return jsonify({"error": "Task not found"}), 404
+        except Exception as e:
+            logger.error(f"Error toggling task: {e}")
+            return jsonify({"error": "Failed to toggle task"}), 500
+        finally:
+            conn.close()
+    return jsonify({"error": "Database connection failed"}), 500
+
+@app.route('/delete_task/<int:task_id>', methods=['DELETE'])
+def delete_task(task_id):
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+            cur.close()
+            return jsonify({"message": "Task deleted successfully"})
+        except Exception as e:
+            logger.error(f"Error deleting task: {e}")
+            return jsonify({"error": "Failed to delete task"}), 500
+        finally:
+            conn.close()
+    return jsonify({"error": "Database connection failed"}), 500
+
+# Initialize the database when the app starts
+init_db()
+
+if __name__ == '__main__':
+    app.run(debug=True)
 
 # Load environment variables
 load_dotenv()
@@ -208,12 +354,7 @@ def delete_task(task_id):
         return jsonify({'error': 'Failed to delete task'}), 500
 
 if __name__ == '__main__':
-    # Create templates directory if it doesn't exist
-    os.makedirs('templates', exist_ok=True)
-    
-    # Create the HTML template
-    html_content = '''<!DOCTYPE html>
-<html lang="en">
+    app.run(debug=True, host='0.0.0.0')
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -640,9 +781,146 @@ if __name__ == '__main__':
     os.makedirs('templates', exist_ok=True)
 
     # Create the HTML template with inline CSS and JS
-    html_content = '''<!DOCTYPE html>
-
-        // Tab functionality
+    html_content += '''
+        <button class="tab" onclick="showTab('calendar')">Calendar</button>
+    </div>
+</div>
+<div class="content">
+    <!-- Task View -->
+    <div id="tasks" class="tab-content active">
+        <div class="view-toggle">
+            <button class="view-btn active" onclick="showTaskView('kanban')">Kanban</button>
+            <button class="view-btn" onclick="showTaskView('eisenhower')">Eisenhower Matrix</button>
+        </div>
+        <button class="add-task-btn" onclick="openTaskModal()">+ Add Task</button>
+        
+        <!-- Kanban View -->
+        <div id="kanban-view" class="task-view" style="display: block;">
+            <div class="kanban-board">
+                <div class="kanban-column" data-status="todo">
+                    <div class="kanban-header todo-header">To Do</div>
+                    <div id="todo-tasks"></div>
+                </div>
+                <div class="kanban-column" data-status="in_progress">
+                    <div class="kanban-header progress-header">In Progress</div>
+                    <div id="progress-tasks"></div>
+                </div>
+                <div class="kanban-column" data-status="done">
+                    <div class="kanban-header done-header">Done</div>
+                    <div id="done-tasks"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Eisenhower Matrix View -->
+        <div id="eisenhower-view" class="task-view" style="display: none;">
+            <div class="eisenhower-matrix">
+                <div class="matrix-quadrant urgent-important">
+                    <div class="quadrant-title">Urgent & Important</div>
+                    <div id="urgent-important-tasks"></div>
+                </div>
+                <div class="matrix-quadrant urgent-not-important">
+                    <div class="quadrant-title">Urgent, Not Important</div>
+                    <div id="urgent-not-important-tasks"></div>
+                </div>
+                <div class="matrix-quadrant not-urgent-important">
+                    <div class="quadrant-title">Important, Not Urgent</div>
+                    <div id="not-urgent-important-tasks"></div>
+                </div>
+                <div class="matrix-quadrant not-urgent-not-important">
+                    <div class="quadrant-title">Not Urgent, Not Important</div>
+                    <div id="not-urgent-not-important-tasks"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Calendar View -->
+    <div id="calendar" class="tab-content">
+        <div class="view-toggle">
+            <button class="view-btn active" onclick="setCalendarView('month')">Month</button>
+            <button class="view-btn" onclick="setCalendarView('week')">Week</button>
+            <button class="view-btn" onclick="setCalendarView('day')">Day</button>
+        </div>
+        <div class="calendar-controls">
+            <div class="calendar-nav">
+                <button class="nav-btn" onclick="navigateCalendar(-1)">←</button>
+                <button class="nav-btn" onclick="goToToday()">Today</button>
+                <button class="nav-btn" onclick="navigateCalendar(1)">→</button>
+            </div>
+            <h2 id="calendar-title"></h2>
+        </div>
+        <div id="calendar-grid" class="calendar-grid"></div>
+        <div class="unassigned-tasks">
+            <div class="unassigned-header">Unassigned Tasks</div>
+            <div id="unassigned-task-list"></div>
+        </div>
+    </div>
+</div>
+    </div>
+    
+    <!-- Task Modal -->
+    <div id="taskModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTaskModal()">&times;</span>
+            <h2 id="modal-title">Add New Task</h2>
+            <form id="taskForm">
+                <div class="form-group">
+                    <label for="task-title">Title</label>
+                    <input type="text" id="task-title" required>
+                </div>
+                <div class="form-group">
+                    <label for="task-description">Description</label>
+                    <textarea id="task-description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="task-due-date">Due Date</label>
+                    <input type="date" id="task-due-date">
+                </div>
+                <div class="form-group">
+                    <label for="task-assigned-date">Assigned Date</label>
+                    <input type="date" id="task-assigned-date">
+                </div>
+                <div class="form-group">
+                    <label for="task-priority">Priority</label>
+                    <select id="task-priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-status">Status</label>
+                    <select id="task-status">
+                        <option value="todo" selected>To Do</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="done">Done</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="task-notes">Notes</label>
+                    <textarea id="task-notes" rows="3"></textarea>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let tasks = [];
+        let currentDate = new Date();
+        let calendarView = 'month';
+        let editingTaskId = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTasks();
+            setupDragAndDrop();
+        });
         function showTab(tabName) {
             // Update tab buttons
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
