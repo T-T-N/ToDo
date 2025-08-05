@@ -566,6 +566,55 @@
             }
         }
 
+
+        // --- Task Logic ---
+        let tasks = [];
+
+        function addTaskToUI(task) {
+            // Kanban
+            const kanbanColumn = document.getElementById(`${task.status}-tasks`);
+            if (kanbanColumn) {
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.innerHTML = `<div class='task-title'>${task.title}</div>
+                    <div>${task.description || ''}</div>
+                    <div class='task-meta'>
+                        <span>Due: ${task.dueDate || '-'}</span>
+                        <span>Priority: ${task.priority}</span>
+                    </div>`;
+                kanbanColumn.appendChild(card);
+            }
+            // Unassigned list
+            if (!task.assignedDate) {
+                const unassignedList = document.getElementById('unassigned-task-list');
+                const item = document.createElement('div');
+                item.className = 'task-card';
+                item.innerHTML = `<div class='task-title'>${task.title}</div>
+                    <div>${task.description || ''}</div>
+                    <div class='task-meta'>
+                        <span>Due: ${task.dueDate || '-'}</span>
+                        <span>Priority: ${task.priority}</span>
+                    </div>`;
+                unassignedList.appendChild(item);
+            }
+        }
+
+        document.getElementById('taskForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const task = {
+                title: document.getElementById('task-title').value,
+                description: document.getElementById('task-description').value,
+                dueDate: document.getElementById('task-due-date').value,
+                assignedDate: document.getElementById('task-assigned-date').value,
+                priority: document.getElementById('task-priority').value,
+                status: document.getElementById('task-status').value,
+                notes: document.getElementById('task-notes').value
+            };
+            tasks.push(task);
+            addTaskToUI(task);
+            closeTaskModal();
+        });
+
         // Initial render
         document.addEventListener('DOMContentLoaded', function() {
             renderCalendar();
