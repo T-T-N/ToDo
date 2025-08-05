@@ -8,18 +8,17 @@ app = Flask(__name__)
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL')
-if DATABASE_URL:
-    # Handle both postgres:// and postgresql:// URL formats
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    
-    # Add query parameters for better connection handling
-    if '?' in DATABASE_URL:
-        DATABASE_URL += '&application_name=todo_app'
-    else:
-        DATABASE_URL += '?application_name=todo_app'
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Configure Flask-SQLAlchemy
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 5,
+    'max_overflow': 2,
+    'pool_timeout': 30,
+    'pool_recycle': 1800
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.getenv('SECRET_KEY', 'your-default-secret-key')
 

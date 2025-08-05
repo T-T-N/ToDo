@@ -3,13 +3,16 @@ import os
 import multiprocessing
 
 # Worker processes
-workers = multiprocessing.cpu_count() * 2 + 1
-threads = 2
+workers = 4  # Fixed number of workers for stability
+threads = 1
 worker_class = 'sync'
+max_requests = 1000
+max_requests_jitter = 50
 
 # Binding
 bind = "0.0.0.0:" + os.environ.get("PORT", "8000")
-timeout = 120  # Increase timeout for slower operations
+timeout = 30  # More reasonable timeout
+keepalive = 5
 
 # Handle SSL termination properly
 forwarded_allow_ips = '*'
