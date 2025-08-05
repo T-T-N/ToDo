@@ -155,45 +155,35 @@ def update_task(task_id):
         data = request.json
         conn, cur = get_db()
         
-        # Build dynamic update query
-        update_fields = []
-        values = []
+        cur.execute("""
+            UPDATE tasks SET
+                title = COALESCE(%s, title),
+                description = COALESCE(%s, description),
+                due_date = CASE WHEN %s = '' THEN NULL ELSE COALESCE(%s, due_date) END,
+                assigned_date = CASE WHEN %s = '' THEN NULL ELSE COALESCE(%s, assigned_date) END,
+                priority = COALESCE(%s, priority),
+                status = COALESCE(%s, status),
+                notes = COALESCE(%s, notes),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s;
+        """, (
+            data.get('title'),
+            data.get('description'),
+            data.get('due_date', ''),
+            data.get('due_date'),
+            data.get('assigned_date', ''),
+            data.get('assigned_date'),
+            data.get('priority'),
+            data.get('status'),
+            data.get('notes'),
+            task_id
+        ))
         
-        if 'title' in 
-            update_fields.append("title = %s")
-            values.append(data['title'])
-        if 'description' in 
-            update_fields.append("description = %s")
-            values.append(data['description'])
-        if 'due_date' in 
-            update_fields.append("due_date = %s")
-            values.append(data['due_date'] if data['due_date'] else None)
-        if 'assigned_date' in 
-            update_fields.append("assigned_date = %s")
-            values.append(data['assigned_date'] if data['assigned_date'] else None)
-        if 'priority' in 
-            update_fields.append("priority = %s")
-            values.append(data['priority'])
-        if 'status' in 
-            update_fields.append("status = %s")
-            values.append(data['status'])
-        if 'notes' in 
-            update_fields.append("notes = %s")
-            values.append(data['notes'])
+        if cur.rowcount == 0:
+            release_db(conn, cur)
+            return jsonify({'error': 'Task not found'}), 404
         
-        if update_fields:
-            update_fields.append("updated_at = CURRENT_TIMESTAMP")
-            values.append(task_id)
-            
-            query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = %s;"
-            cur.execute(query, values)
-            
-            if cur.rowcount == 0:
-                release_db(conn, cur)
-                return jsonify({'error': 'Task not found'}), 404
-            
-            conn.commit()
-        
+        conn.commit()
         release_db(conn, cur)
         return jsonify({'success': True})
     except Exception as e:
