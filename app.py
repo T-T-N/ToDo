@@ -8,13 +8,10 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Database configuration
-db_config = {
-    'dbname': os.getenv('DB_NAME', 'todolist'),
-    'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'root'),
-    'host': os.getenv('DB_HOST', 'localhost'),
-    'port': os.getenv('DB_PORT', '5432')
-}
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+# Add Flask secret key
+app.secret_key = os.getenv('SECRET_KEY', 'your-default-secret-key')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 def get_db():
     try:
-        conn = psycopg2.connect(**db_config)
+        if not DATABASE_URL:
+            logger.error("DATABASE_URL environment variable is not set")
+            return None, None
+        conn = psycopg2.connect(DATABASE_URL)
         conn.autocommit = True
         return conn, conn.cursor(cursor_factory=RealDictCursor)
     except Exception as e:
