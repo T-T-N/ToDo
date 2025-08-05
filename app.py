@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import logging
 from datetime import datetime
 
@@ -9,50 +8,54 @@ app = Flask(__name__)
 
 # Database configuration
 DATABASE_URL = os.getenv('DATABASE_URL')
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Add Flask secret key
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.getenv('SECRET_KEY', 'your-default-secret-key')
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_db():
-    try:
-        if not DATABASE_URL:
-            logger.error("DATABASE_URL environment variable is not set")
-            return None, None
-        conn = psycopg2.connect(DATABASE_URL)
-        conn.autocommit = True
-        return conn, conn.cursor(cursor_factory=RealDictCursor)
-    except Exception as e:
-        logger.error(f"Failed to get database connection: {e}")
-        return None, None
+# Initialize SQLAlchemy
+db = SQLAlchemy(app)
 
+# Define Task model
+class Task(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    status = db.Column(db.String(50), default='todo')
+    priority = db.Column(db.String(50), default='medium')
+    due_date = db.Column(db.Date)
+    assigned_date = db.Column(db.Date)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description,
+            'status': self.status,
+            'priority': self.priority,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'assigned_date': self.assigned_date.isoformat() if self.assigned_date else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+# Initialize database
 def init_db():
-    conn, cur = get_db()
-    if conn and cur:
+    with app.app_context():
         try:
-            # Create tasks table if it doesn't exist
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    id SERIAL PRIMARY KEY,
-                    title VARCHAR(255) NOT NULL,
-                    description TEXT,
-                    status VARCHAR(50) DEFAULT 'todo',
-                    priority VARCHAR(50) DEFAULT 'medium',
-                    due_date DATE,
-                    assigned_date DATE,
-                    notes TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            db.create_all()
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
-        finally:
-            cur.close()
-            conn.close()
+            raise
 
 @app.route('/')
 def index():
@@ -60,96 +63,83 @@ def index():
 
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
-    conn, cur = get_db()
-    if not conn or not cur:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
     try:
-        cur.execute("SELECT * FROM tasks ORDER BY created_at DESC")
-        tasks = cur.fetchall()
-        return jsonify([dict(task) for task in tasks])
+        tasks = Task.query.order_by(Task.created_at.desc()).all()
+        return jsonify([task.to_dict() for task in tasks])
     except Exception as e:
         logger.error(f"Error fetching tasks: {e}")
         return jsonify({'error': 'Failed to fetch tasks'}), 500
-    finally:
-        cur.close()
-        conn.close()
 
 @app.route('/api/tasks', methods=['POST'])
 def create_task():
-    conn, cur = get_db()
-    if not conn or not cur:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
     try:
-        task = request.json
-        cur.execute("""
-            INSERT INTO tasks (title, description, status, priority, due_date, assigned_date, notes)
-            VALUES (%(title)s, %(description)s, %(status)s, %(priority)s, %(due_date)s, %(assigned_date)s, %(notes)s)
-            RETURNING *
-        """, task)
-        new_task = dict(cur.fetchone())
-        return jsonify(new_task), 201
+        data = request.json
+        task = Task(
+            title=data['title'],
+            description=data.get('description'),
+            status=data.get('status', 'todo'),
+            priority=data.get('priority', 'medium'),
+            due_date=datetime.strptime(data['due_date'], '%Y-%m-%d').date() if data.get('due_date') else None,
+            assigned_date=datetime.strptime(data['assigned_date'], '%Y-%m-%d').date() if data.get('assigned_date') else None,
+            notes=data.get('notes')
+        )
+        db.session.add(task)
+        db.session.commit()
+        return jsonify(task.to_dict()), 201
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Error creating task: {e}")
         return jsonify({'error': 'Failed to create task'}), 500
-    finally:
-        cur.close()
-        conn.close()
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 def update_task(task_id):
-    conn, cur = get_db()
-    if not conn or not cur:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
     try:
-        task = request.json
-        update_fields = []
-        values = {}
-        
-        for key, value in task.items():
-            if key not in ['id']:
-                update_fields.append(f"{key} = %({key})s")
-                values[key] = value
-        
-        values['id'] = task_id
-        query = f"""
-            UPDATE tasks 
-            SET {', '.join(update_fields)}
-            WHERE id = %(id)s
-            RETURNING *
-        """
-        
-        cur.execute(query, values)
-        updated_task = dict(cur.fetchone())
-        return jsonify(updated_task)
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+
+        data = request.json
+        if 'title' in data:
+            task.title = data['title']
+        if 'description' in data:
+            task.description = data['description']
+        if 'status' in data:
+            task.status = data['status']
+        if 'priority' in data:
+            task.priority = data['priority']
+        if 'due_date' in data:
+            task.due_date = datetime.strptime(data['due_date'], '%Y-%m-%d').date() if data['due_date'] else None
+        if 'assigned_date' in data:
+            task.assigned_date = datetime.strptime(data['assigned_date'], '%Y-%m-%d').date() if data['assigned_date'] else None
+        if 'notes' in data:
+            task.notes = data['notes']
+
+        db.session.commit()
+        return jsonify(task.to_dict())
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Error updating task: {e}")
         return jsonify({'error': 'Failed to update task'}), 500
-    finally:
-        cur.close()
-        conn.close()
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
-    conn, cur = get_db()
-    if not conn or not cur:
-        return jsonify({'error': 'Database connection failed'}), 500
-    
     try:
-        cur.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+        task = Task.query.get(task_id)
+        if not task:
+            return jsonify({'error': 'Task not found'}), 404
+
+        db.session.delete(task)
+        db.session.commit()
         return '', 204
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Error deleting task: {e}")
         return jsonify({'error': 'Failed to delete task'}), 500
-    finally:
-        cur.close()
-        conn.close()
 
 # Initialize database when app starts
 with app.app_context():
-    init_db()
+    db.create_all()
+    logger.info("Database initialized successfully")
 
 if __name__ == '__main__':
     app.run(debug=True)
