@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 import json
 import os
 from dotenv import load_dotenv
-import psycopg2
-from psycopg2 import pool
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg import pool
+from psycopg.rows import dict_row
 import logging
 
 # Load environment variables
