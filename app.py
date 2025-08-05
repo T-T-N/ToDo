@@ -4,7 +4,7 @@ import json
 import os
 from dotenv import load_dotenv
 import psycopg
-from psycopg import pool
+from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 import logging
 
@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 # Create connection pool for production
 try:
-    db_pool = psycopg2.pool.ThreadedConnectionPool(
-        minconn=1,
-        maxconn=20,
-        dsn=os.environ.get('DATABASE_URL'),
-        cursor_factory=RealDictCursor
+    db_pool = ConnectionPool(
+        conninfo=os.environ.get('DATABASE_URL'),
+        min_size=1,
+        max_size=20,
+        kwargs={'row_factory': dict_row}
     )
     logger.info("Database connection pool created successfully")
 except Exception as e:
@@ -41,8 +41,10 @@ def get_db():
 
 def release_db(conn, cur):
     try:
-        cur.close()
-        db_pool.putconn(conn)
+        if cur:
+            cur.close()
+        if conn:
+            db_pool.putconn(conn)
     except Exception as e:
         logger.error(f"Failed to release database connection: {e}")
 
