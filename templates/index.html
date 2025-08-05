@@ -458,8 +458,13 @@
             document.getElementById('taskModal').style.display = 'none';
         }
 
-        // Calendar view toggle
+
+        // --- Calendar Logic ---
+        let calendarView = 'month';
+        let calendarDate = new Date();
+
         function setCalendarView(view) {
+            calendarView = view;
             document.querySelectorAll('#calendar .view-toggle .btn').forEach(btn => btn.classList.remove('active'));
             if (view === 'month') {
                 document.querySelector('#calendar .view-toggle .btn:nth-child(1)').classList.add('active');
@@ -468,18 +473,103 @@
             } else {
                 document.querySelector('#calendar .view-toggle .btn:nth-child(3)').classList.add('active');
             }
-            // Placeholder: update calendar grid for selected view
+            renderCalendar();
         }
 
-        // Calendar navigation
         function navigateCalendar(direction) {
-            // Placeholder: implement calendar navigation logic
-            alert('Navigate calendar: ' + direction);
+            if (calendarView === 'month') {
+                calendarDate.setMonth(calendarDate.getMonth() + direction);
+            } else if (calendarView === 'week') {
+                calendarDate.setDate(calendarDate.getDate() + direction * 7);
+            } else {
+                calendarDate.setDate(calendarDate.getDate() + direction);
+            }
+            renderCalendar();
         }
+
         function goToToday() {
-            // Placeholder: implement go to today logic
-            alert('Go to today');
+            calendarDate = new Date();
+            renderCalendar();
         }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            const title = document.getElementById('calendar-title');
+            grid.innerHTML = '';
+            if (calendarView === 'month') {
+                const year = calendarDate.getFullYear();
+                const month = calendarDate.getMonth();
+                title.textContent = `${calendarDate.toLocaleString('default', { month: 'long' })} ${year}`;
+                // Day headers
+                const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                days.forEach(day => {
+                    const header = document.createElement('div');
+                    header.className = 'day-header';
+                    header.textContent = day;
+                    grid.appendChild(header);
+                });
+                // First day of month
+                const firstDay = new Date(year, month, 1);
+                const startDay = firstDay.getDay();
+                // Days in month
+                const daysInMonth = new Date(year, month+1, 0).getDate();
+                // Previous month days
+                const prevMonthDays = new Date(year, month, 0).getDate();
+                // Fill grid
+                for (let i = 0; i < startDay; i++) {
+                    const dayCell = document.createElement('div');
+                    dayCell.className = 'calendar-day other-month';
+                    dayCell.innerHTML = `<div class='day-number'>${prevMonthDays - startDay + i + 1}</div>`;
+                    grid.appendChild(dayCell);
+                }
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dayCell = document.createElement('div');
+                    dayCell.className = 'calendar-day';
+                    const today = new Date();
+                    if (d === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
+                        dayCell.classList.add('today');
+                    }
+                    dayCell.innerHTML = `<div class='day-number'>${d}</div>`;
+                    grid.appendChild(dayCell);
+                }
+                // Next month days
+                const totalCells = startDay + daysInMonth;
+                for (let i = 0; i < (7 - (totalCells % 7)) % 7; i++) {
+                    const dayCell = document.createElement('div');
+                    dayCell.className = 'calendar-day other-month';
+                    dayCell.innerHTML = `<div class='day-number'>${i+1}</div>`;
+                    grid.appendChild(dayCell);
+                }
+            } else if (calendarView === 'week') {
+                // Week view
+                const curr = new Date(calendarDate);
+                const weekStart = new Date(curr.setDate(curr.getDate() - curr.getDay()));
+                title.textContent = `Week of ${weekStart.toLocaleDateString()}`;
+                for (let i = 0; i < 7; i++) {
+                    const day = new Date(weekStart);
+                    day.setDate(weekStart.getDate() + i);
+                    const dayCell = document.createElement('div');
+                    dayCell.className = 'calendar-day';
+                    if (day.toDateString() === new Date().toDateString()) {
+                        dayCell.classList.add('today');
+                    }
+                    dayCell.innerHTML = `<div class='day-number'>${day.getDate()}<br>${day.toLocaleString('default', { weekday: 'short' })}</div>`;
+                    grid.appendChild(dayCell);
+                }
+            } else {
+                // Day view
+                title.textContent = calendarDate.toLocaleDateString();
+                const dayCell = document.createElement('div');
+                dayCell.className = 'calendar-day today';
+                dayCell.innerHTML = `<div class='day-number'>${calendarDate.getDate()}<br>${calendarDate.toLocaleString('default', { weekday: 'long' })}</div>`;
+                grid.appendChild(dayCell);
+            }
+        }
+
+        // Initial render
+        document.addEventListener('DOMContentLoaded', function() {
+            renderCalendar();
+        });
 
         // Modal close on outside click
         window.onclick = function(event) {
