@@ -421,7 +421,73 @@
         </div>
     </div>
     <script>
-        // ...existing code for frontend logic (drag & drop, API calls, calendar rendering, etc.)...
+        // --- UI Interaction Logic ---
+        // Tab switching
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            if (tabName === 'tasks') {
+                document.querySelector('.tab:nth-child(1)').classList.add('active');
+                document.getElementById('tasks').classList.add('active');
+            } else {
+                document.querySelector('.tab:nth-child(2)').classList.add('active');
+                document.getElementById('calendar').classList.add('active');
+            }
+        }
+
+        // Task view toggle
+        function showTaskView(view) {
+            document.querySelectorAll('.task-view').forEach(v => v.style.display = 'none');
+            document.querySelectorAll('.btn.btn-secondary').forEach(btn => btn.classList.remove('active'));
+            if (view === 'kanban') {
+                document.getElementById('kanban-view').style.display = 'block';
+                document.querySelector('.view-toggle .btn:nth-child(1)').classList.add('active');
+            } else {
+                document.getElementById('eisenhower-view').style.display = 'block';
+                document.querySelector('.view-toggle .btn:nth-child(2)').classList.add('active');
+            }
+        }
+
+        // Modal open/close
+        function openTaskModal() {
+            document.getElementById('taskModal').style.display = 'block';
+            document.getElementById('modal-title').textContent = 'Add New Task';
+            document.getElementById('taskForm').reset();
+        }
+        function closeTaskModal() {
+            document.getElementById('taskModal').style.display = 'none';
+        }
+
+        // Calendar view toggle
+        function setCalendarView(view) {
+            document.querySelectorAll('#calendar .view-toggle .btn').forEach(btn => btn.classList.remove('active'));
+            if (view === 'month') {
+                document.querySelector('#calendar .view-toggle .btn:nth-child(1)').classList.add('active');
+            } else if (view === 'week') {
+                document.querySelector('#calendar .view-toggle .btn:nth-child(2)').classList.add('active');
+            } else {
+                document.querySelector('#calendar .view-toggle .btn:nth-child(3)').classList.add('active');
+            }
+            // Placeholder: update calendar grid for selected view
+        }
+
+        // Calendar navigation
+        function navigateCalendar(direction) {
+            // Placeholder: implement calendar navigation logic
+            alert('Navigate calendar: ' + direction);
+        }
+        function goToToday() {
+            // Placeholder: implement go to today logic
+            alert('Go to today');
+        }
+
+        // Modal close on outside click
+        window.onclick = function(event) {
+            const modal = document.getElementById('taskModal');
+            if (event.target === modal) {
+                closeTaskModal();
+            }
+        }
     </script>
 </body>
 </html>
