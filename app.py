@@ -1,86 +1,221 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify
 from datetime import datetime, timedelta
 import json
 import os
+from dotenv import load_dotenv
+import psycopg2
+from psycopg2 import pool
+from psycopg2.extras import RealDictCursor
+import logging
+
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
+app.secret_key = os.environ.get('SECRET_KEY')
 
-# In-memory storage (in production, use a proper database)
-tasks = []
-task_counter = 1
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class Task:
-    def __init__(self, id, title, description="", due_date=None, assigned_date=None, priority="medium", status="todo"):
-        self.id = id
-        self.title = title
-        self.description = description
-        self.due_date = due_date
-        self.assigned_date = assigned_date
-        self.priority = priority  # low, medium, high, urgent
-        self.status = status  # todo, in_progress, done
-        self.notes = ""
+# Create connection pool for production
+try:
+    db_pool = psycopg2.pool.ThreadedConnectionPool(
+        minconn=1,
+        maxconn=20,
+        dsn=os.environ.get('DATABASE_URL'),
+        cursor_factory=RealDictCursor
+    )
+    logger.info("Database connection pool created successfully")
+except Exception as e:
+    logger.error(f"Failed to create database pool: {e}")
+    raise
+
+def get_db():
+    try:
+        conn = db_pool.getconn()
+        return conn, conn.cursor()
+    except Exception as e:
+        logger.error(f"Failed to get database connection: {e}")
+        raise
+
+def release_db(conn, cur):
+    try:
+        cur.close()
+        db_pool.putconn(conn)
+    except Exception as e:
+        logger.error(f"Failed to release database connection: {e}")
+
+# Initialize database table on startup
+def init_db():
+    conn, cur = get_db()
+    try:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT,
+                due_date DATE,
+                assigned_date DATE,
+                priority TEXT NOT NULL DEFAULT 'medium',
+                status TEXT NOT NULL DEFAULT 'todo',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        
+        # Create index for better performance
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+            CREATE INDEX IF NOT EXISTS idx_tasks_assigned_date ON tasks(assigned_date);
+        """)
+        
+        conn.commit()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
+    finally:
+        release_db(conn, cur)
+
+# Initialize database on startup
+init_db()
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/api/health')
+def health_check():
+    try:
+        conn, cur = get_db()
+        cur.execute("SELECT 1;")
+        cur.fetchone()
+        release_db(conn, cur)
+        return jsonify({'status': 'healthy', 'database': 'connected'})
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({'status': 'unhealthy', 'database': 'disconnected'}), 500
+
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
-    return jsonify([{
-        'id': task.id,
-        'title': task.title,
-        'description': task.description,
-        'due_date': task.due_date,
-        'assigned_date': task.assigned_date,
-        'priority': task.priority,
-        'status': task.status,
-        'notes': task.notes
-    } for task in tasks])
+    try:
+        conn, cur = get_db()
+        cur.execute("SELECT * FROM tasks ORDER BY id;")
+        rows = cur.fetchall()
+        release_db(conn, cur)
+        
+        # Convert date objects to strings for JSON serialization
+        tasks = []
+        for row in rows:
+            task = dict(row)
+            if task['due_date']:
+                task['due_date'] = task['due_date'].strftime('%Y-%m-%d')
+            if task['assigned_date']:
+                task['assigned_date'] = task['assigned_date'].strftime('%Y-%m-%d')
+            tasks.append(task)
+        
+        return jsonify(tasks)
+    except Exception as e:
+        logger.error(f"Error fetching tasks: {e}")
+        return jsonify({'error': 'Failed to fetch tasks'}), 500
 
 @app.route('/api/tasks', methods=['POST'])
 def add_task():
-    global task_counter
-    data = request.json
-    
-    task = Task(
-        id=task_counter,
-        title=data['title'],
-        description=data.get('description', ''),
-        due_date=data.get('due_date'),
-        assigned_date=data.get('assigned_date'),
-        priority=data.get('priority', 'medium'),
-        status=data.get('status', 'todo')
-    )
-    task.notes = data.get('notes', '')
-    
-    tasks.append(task)
-    task_counter += 1
-    
-    return jsonify({'success': True, 'id': task.id})
+    try:
+        data = request.json
+        conn, cur = get_db()
+        cur.execute("""
+            INSERT INTO tasks
+                (title, description, due_date, assigned_date, priority, status, notes)
+            VALUES
+                (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (
+            data['title'],
+            data.get('description', ''),
+            data.get('due_date') if data.get('due_date') else None,
+            data.get('assigned_date') if data.get('assigned_date') else None,
+            data.get('priority', 'medium'),
+            data.get('status', 'todo'),
+            data.get('notes', '')
+        ))
+        new_id = cur.fetchone()['id']
+        conn.commit()
+        release_db(conn, cur)
+        return jsonify({'success': True, 'id': new_id})
+    except Exception as e:
+        logger.error(f"Error adding task: {e}")
+        return jsonify({'error': 'Failed to add task'}), 500
 
 @app.route('/api/tasks/<int:task_id>', methods=['PUT'])
 def update_task(task_id):
-    task = next((t for t in tasks if t.id == task_id), None)
-    if not task:
-        return jsonify({'error': 'Task not found'}), 404
-    
-    data = request.json
-    task.title = data.get('title', task.title)
-    task.description = data.get('description', task.description)
-    task.due_date = data.get('due_date', task.due_date)
-    task.assigned_date = data.get('assigned_date', task.assigned_date)
-    task.priority = data.get('priority', task.priority)
-    task.status = data.get('status', task.status)
-    task.notes = data.get('notes', task.notes)
-    
-    return jsonify({'success': True})
+    try:
+        data = request.json
+        conn, cur = get_db()
+        
+        # Build dynamic update query
+        update_fields = []
+        values = []
+        
+        if 'title' in 
+            update_fields.append("title = %s")
+            values.append(data['title'])
+        if 'description' in 
+            update_fields.append("description = %s")
+            values.append(data['description'])
+        if 'due_date' in 
+            update_fields.append("due_date = %s")
+            values.append(data['due_date'] if data['due_date'] else None)
+        if 'assigned_date' in 
+            update_fields.append("assigned_date = %s")
+            values.append(data['assigned_date'] if data['assigned_date'] else None)
+        if 'priority' in 
+            update_fields.append("priority = %s")
+            values.append(data['priority'])
+        if 'status' in 
+            update_fields.append("status = %s")
+            values.append(data['status'])
+        if 'notes' in 
+            update_fields.append("notes = %s")
+            values.append(data['notes'])
+        
+        if update_fields:
+            update_fields.append("updated_at = CURRENT_TIMESTAMP")
+            values.append(task_id)
+            
+            query = f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = %s;"
+            cur.execute(query, values)
+            
+            if cur.rowcount == 0:
+                release_db(conn, cur)
+                return jsonify({'error': 'Task not found'}), 404
+            
+            conn.commit()
+        
+        release_db(conn, cur)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error updating task: {e}")
+        return jsonify({'error': 'Failed to update task'}), 500
 
 @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
-    global tasks
-    tasks = [t for t in tasks if t.id != task_id]
-    return jsonify({'success': True})
+    try:
+        conn, cur = get_db()
+        cur.execute("DELETE FROM tasks WHERE id = %s;", (task_id,))
+        
+        if cur.rowcount == 0:
+            release_db(conn, cur)
+            return jsonify({'error': 'Task not found'}), 404
+        
+        conn.commit()
+        release_db(conn, cur)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error deleting task: {e}")
+        return jsonify({'error': 'Failed to delete task'}), 500
 
 if __name__ == '__main__':
     # Create templates directory if it doesn't exist
