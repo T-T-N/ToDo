@@ -697,54 +697,167 @@
         // --- Task Logic ---
         let tasks = [];
 
-        function addTaskToUI(task) {
-            // Kanban
-            const kanbanColumn = document.getElementById(`${task.status}-tasks`);
-            if (kanbanColumn) {
-                const card = document.createElement('div');
-                card.className = 'task-card';
-                card.innerHTML = `<div class='task-title'>${task.title}</div>
-                    <div>${task.description || ''}</div>
-                    <div class='task-meta'>
-                        <span>Due: ${task.dueDate || '-'}</span>
-                        <span>Priority: ${task.priority}</span>
-                    </div>`;
-                kanbanColumn.appendChild(card);
-            }
-            // Unassigned list
-            if (!task.assignedDate) {
-                const unassignedList = document.getElementById('unassigned-task-list');
-                const item = document.createElement('div');
-                item.className = 'task-card';
-                item.innerHTML = `<div class='task-title'>${task.title}</div>
-                    <div>${task.description || ''}</div>
-                    <div class='task-meta'>
-                        <span>Due: ${task.dueDate || '-'}</span>
-                        <span>Priority: ${task.priority}</span>
-                    </div>`;
-                unassignedList.appendChild(item);
+        // Fetch tasks from the server
+        async function fetchTasks() {
+            try {
+                const response = await fetch('/api/tasks');
+                if (!response.ok) throw new Error('Failed to fetch tasks');
+                tasks = await response.json();
+                renderAllTasks();
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
             }
         }
 
-        document.getElementById('taskForm').addEventListener('submit', function(e) {
+        function clearTaskLists() {
+            document.getElementById('todo-tasks').innerHTML = '';
+            document.getElementById('progress-tasks').innerHTML = '';
+            document.getElementById('done-tasks').innerHTML = '';
+            document.getElementById('unassigned-task-list').innerHTML = '';
+        }
+
+        function renderAllTasks() {
+            clearTaskLists();
+            tasks.forEach(task => addTaskToUI(task));
+        }
+
+        function addTaskToUI(task) {
+            // Format date strings
+            const formatDate = (dateStr) => {
+                if (!dateStr) return '-';
+                return new Date(dateStr).toLocaleDateString();
+            };
+
+            // Create task card
+            const createCard = () => {
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.setAttribute('data-id', task.id);
+                card.draggable = true;
+                card.innerHTML = `
+                    <div class='task-title'>${task.title}</div>
+                    <div>${task.description || ''}</div>
+                    <div class='task-meta'>
+                        <span>Due: ${formatDate(task.due_date)}</span>
+                        <span>Priority: ${task.priority}</span>
+                    </div>`;
+                return card;
+            };
+
+            // Add to Kanban board
+            const kanbanColumn = document.getElementById(`${task.status}-tasks`);
+            if (kanbanColumn) {
+                kanbanColumn.appendChild(createCard());
+            }
+
+            // Add to unassigned list if no assigned date
+            if (!task.assigned_date) {
+                const unassignedList = document.getElementById('unassigned-task-list');
+                unassignedList.appendChild(createCard());
+            }
+        }
+
+        document.getElementById('taskForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            const task = {
+            const taskData = {
                 title: document.getElementById('task-title').value,
                 description: document.getElementById('task-description').value,
-                dueDate: document.getElementById('task-due-date').value,
-                assignedDate: document.getElementById('task-assigned-date').value,
+                due_date: document.getElementById('task-due-date').value,
+                assigned_date: document.getElementById('task-assigned-date').value,
                 priority: document.getElementById('task-priority').value,
                 status: document.getElementById('task-status').value,
                 notes: document.getElementById('task-notes').value
             };
-            tasks.push(task);
-            addTaskToUI(task);
-            closeTaskModal();
+
+            try {
+                const response = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(taskData)
+                });
+
+                if (!response.ok) throw new Error('Failed to create task');
+                
+                const newTask = await response.json();
+                tasks.unshift(newTask); // Add to beginning of array
+                addTaskToUI(newTask);
+                closeTaskModal();
+            } catch (error) {
+                console.error('Error creating task:', error);
+                alert('Failed to create task. Please try again.');
+            }
         });
+
+        // Drag and Drop Functionality
+        function setupDragAndDrop() {
+            const draggables = document.querySelectorAll('.task-card');
+            const dropzones = document.querySelectorAll('.kanban-column');
+
+            draggables.forEach(draggable => {
+                draggable.addEventListener('dragstart', () => {
+                    draggable.classList.add('dragging');
+                });
+
+                draggable.addEventListener('dragend', async () => {
+                    draggable.classList.remove('dragging');
+                    const taskId = draggable.getAttribute('data-id');
+                    const newStatus = draggable.closest('.kanban-column').getAttribute('data-status');
+                    
+                    try {
+                        const response = await fetch(`/api/tasks/${taskId}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ status: newStatus })
+                        });
+
+                        if (!response.ok) throw new Error('Failed to update task');
+                        
+                        // Update local task data
+                        const taskIndex = tasks.findIndex(t => t.id === parseInt(taskId));
+                        if (taskIndex !== -1) {
+                            tasks[taskIndex].status = newStatus;
+                        }
+                    } catch (error) {
+                        console.error('Error updating task:', error);
+                        alert('Failed to update task status. Please try again.');
+                        // Refresh the view to restore original state
+                        renderAllTasks();
+                    }
+                });
+            });
+
+            dropzones.forEach(dropzone => {
+                dropzone.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    const draggable = document.querySelector('.dragging');
+                    if (draggable) {
+                        dropzone.appendChild(draggable);
+                    }
+                });
+
+                dropzone.addEventListener('dragenter', e => {
+                    e.preventDefault();
+                    dropzone.classList.add('drag-over');
+                });
+
+                dropzone.addEventListener('dragleave', () => {
+                    dropzone.classList.remove('drag-over');
+                });
+
+                dropzone.addEventListener('drop', () => {
+                    dropzone.classList.remove('drag-over');
+                });
+            });
+        }
 
         // Initial render
         document.addEventListener('DOMContentLoaded', function() {
             renderCalendar();
+            fetchTasks();
         });
 
         // Modal close on outside click
@@ -753,6 +866,13 @@
             if (event.target === modal) {
                 closeTaskModal();
             }
+        }
+
+        // Call setupDragAndDrop after adding new tasks or updating the view
+        function renderAllTasks() {
+            clearTaskLists();
+            tasks.forEach(task => addTaskToUI(task));
+            setupDragAndDrop();
         }
     </script>
 </body>
